@@ -67,6 +67,20 @@ def _add_to_elements(elements, elem, inside):
                 remove_quotes = True
         if remove_quotes and elem[0] == elem[-1] and elem[0] in {'"', "'"}:
             elem = elem[1: -1]
+        if isinstance(elem, str) and '𝆺𝅥𝅯' in elem:
+            # 𝆺𝅥𝅯 is the escape marker written by stringify_element:
+            # 𝆺𝅥𝅯X encodes the literal character X. Remove the markers.
+            unescaped = []
+            i = 0
+            elem_len = len(elem)
+            while i < elem_len:
+                char = elem[i]
+                if char == '𝆺𝅥𝅯' and i + 1 < elem_len:
+                    i += 1
+                    char = elem[i]
+                unescaped.append(char)
+                i += 1
+            elem = ''.join(unescaped)
         action = GETATTR if inside == '.' else GET
         elements.append((elem, action))
 
@@ -91,14 +105,19 @@ def _path_to_elements(path, root_element=DEFAULT_FIRST_ELEMENT):
         elements.append(root_element)
     elem = ''
     inside = False
-    prev_char = None
+    escaped = False
     path = path[4:]  # removing "root from the beginning"
     brackets = []
     inside_quotes = False
     quote_used = ''
     for char in path:
-        if prev_char == '𝆺𝅥𝅯':
+        if escaped:
+            # The previous char was the 𝆺𝅥𝅯 escape marker: this char is literal.
             elem += char
+            escaped = False
+        elif char == '𝆺𝅥𝅯':
+            elem += char
+            escaped = True
         elif char in {'"', "'"}:
             elem += char
             # If we are inside and the quote is not what we expected, the quote is not closing
@@ -144,7 +163,6 @@ def _path_to_elements(path, root_element=DEFAULT_FIRST_ELEMENT):
                 inside = False
         else:
             elem += char
-        prev_char = char
     if elem:
         _add_to_elements(elements, elem, inside)
     return tuple(elements)
@@ -313,19 +331,28 @@ def parse_path(path, root_element=DEFAULT_FIRST_ELEMENT, include_actions=False):
 def stringify_element(param, quote_str=None):
     has_quote = "'" in param
     has_double_quote = '"' in param
-    if has_quote and has_double_quote and not quote_str:
+    if has_quote and has_double_quote:
+        # Both quote types are present: neither quote char can delimit the
+        # string on its own, so emit a double-quoted form with every quote
+        # char escaped by the 𝆺𝅥𝅯 marker. The marker itself is escaped too so
+        # the scheme round-trips for keys that literally contain 𝆺𝅥𝅯.
         new_param = []
         for char in param:
-            if char in {'"', "'"}:
+            if char in {'"', "'", '𝆺𝅥𝅯'}:
                 new_param.append('𝆺𝅥𝅯')
             new_param.append(char)
         result = '"' + ''.join(new_param) + '"'
-    elif has_quote:
-        result = f'"{param}"'
-    elif has_double_quote:
-        result = f"'{param}'"
     else:
-        result = param if quote_str is None else quote_str.format(param)
+        if '𝆺𝅥𝅯' in param:
+            # 𝆺𝅥𝅯 is reserved as the escape marker. Escape literal occurrences
+            # so the parsing side can unambiguously remove the markers.
+            param = param.replace('𝆺𝅥𝅯', '𝆺𝅥𝅯𝆺𝅥𝅯')
+        if has_quote:
+            result = f'"{param}"'
+        elif has_double_quote:
+            result = f"'{param}'"
+        else:
+            result = param if quote_str is None else quote_str.format(param)
     return result
 
 

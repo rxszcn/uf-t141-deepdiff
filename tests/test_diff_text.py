@@ -8,7 +8,7 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import List
 from decimal import Decimal
-from deepdiff import DeepDiff
+from deepdiff import DeepDiff, extract
 from deepdiff.helper import pypy3, PydanticBaseModel, np_float64
 from tests import CustomClass
 
@@ -350,8 +350,10 @@ class TestDeepDiffText:
         t1 = {'''a'"a''': 1}
         t2 = {'''a'"a''': 2}
         diff = DeepDiff(t1, t2)
-        expected = {'values_changed': {'root["a\'"a"]': {'new_value': 2, 'old_value': 1}}}
+        expected = {'values_changed': {'root["a𝆺𝅥𝅯\'𝆺𝅥𝅯"a"]': {'new_value': 2, 'old_value': 1}}}
         assert expected == diff
+        path = next(iter(diff['values_changed']))
+        assert extract(t2, path) == 2
 
     def test_bytes(self):
         t1 = {
